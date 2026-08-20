@@ -27,49 +27,77 @@ router.get('/', async (req, res, next) => {
     const limitNum = Math.min(Math.max(parseInt(limit, 10) || 200, 1), 500);
     const skip = (pageNum - 1) * limitNum;
 
-    // Fetch one extra doc to know if there's a next page, without a separate count query.
-    // maxTimeMS is critical here: without it, a filter/sort that can't use an index on a
-    // multi-million-document (or time-series) collection can run for minutes and the UI
-    // just spins on "Loading…" forever. Fail fast instead, with a clear message.
-    const QUERY_TIMEOUT_MS = 10000;
-    const docsPromise = coll
-      .find(parsedFilter)
-      .sort(parsedSort)
-      .skip(skip)
-      .limit(limitNum + 1)
-      .maxTimeMS(QUERY_TIMEOUT_MS)
-      .toArray()
-      .catch((e) => {
-        if (e.code === 50 || /exceeded time limit/i.test(e.message)) {
-          const err = new Error(
-            'Query timed out — this filter/sort can\'t use an index on this collection, so MongoDB would have to scan millions of documents. Narrow the filter (e.g. add a range on the time field) or add an index for this query.'
-          );
-          err.status = 504;
-          throw err;
+    // Try the query as requested, but if it can't use an index (common on big/time-series
+    // collections without a matching index) never just error out — degrade step by step
+    // and still return whatever we can get quickly, rather than showing nothing.
+    const QUERY_TIMEOUT_MS = 8000;
+
+    async function attempt(useSort, attemptLimit, timeoutMs) {
+      const cursor = coll.find(parsedFilter).skip(skip).limit(attemptLimit + 1).maxTimeMS(timeoutMs);
+      if (useSort) cursor.sort(parsedSort);
+      return cursor.toArray();
+    }
+
+    const hasSort = Object.keys(parsedSort).length > 0;
+    let rawDocs;
+    let usedLimit = limitNum;
+    let degraded = false;
+    let warning = null;
+
+    try {
+      // Attempt 1: exactly what was asked for.
+      rawDocs = await attempt(hasSort, limitNum, QUERY_TIMEOUT_MS);
+      usedLimit = limitNum;
+    } catch (e1) {
+      try {
+        // Attempt 2: drop the sort (usually the expensive part without a matching index)
+        // and shrink the page size.
+        const smallerLimit = Math.min(limitNum, 50);
+        rawDocs = await attempt(false, smallerLimit, 6000);
+        usedLimit = smallerLimit;
+        degraded = true;
+        warning = hasSort
+          ? `Showing ${smallerLimit} unsorted results — the requested sort has no matching index on this collection, so it was skipped for speed.`
+          : `Showing ${smallerLimit} results — this collection is large and a smaller page loads faster.`;
+      } catch (e2) {
+        try {
+          // Attempt 3: bare minimum — just prove the filter works at all, fast.
+          rawDocs = await attempt(false, 20, 4000);
+          usedLimit = 20;
+          degraded = true;
+          warning = 'Showing only 20 results — this query is slow on this collection (likely missing an index). Consider adding a filter on an indexed field.';
+        } catch (e3) {
+          // Give up gracefully: empty result, not a 500/504.
+          rawDocs = [];
+          usedLimit = 0;
+          degraded = true;
+          warning = 'Could not fetch results in time — this collection/query needs an index to be usable. Try narrowing the filter.';
         }
-        throw e;
-      });
+      }
+    }
 
     // Counting is expensive on multi-million-document collections (full scan for
     // countDocuments with a filter). Use the fast metadata-based estimate when there's
     // no filter, and bound filtered counts with a timeout so they can never hang the request.
     const countPromise = isEmptyFilter
       ? coll.estimatedDocumentCount().catch(() => null)
-      : coll.countDocuments(parsedFilter, { maxTimeMS: 4000 }).catch(() => null);
+      : coll.countDocuments(parsedFilter, { maxTimeMS: 3000 }).catch(() => null);
 
-    const [rawDocs, total] = await Promise.all([docsPromise, countPromise]);
+    const total = await countPromise;
 
-    const hasMore = rawDocs.length > limitNum;
-    const docs = hasMore ? rawDocs.slice(0, limitNum) : rawDocs;
+    const hasMore = rawDocs.length > usedLimit;
+    const docs = hasMore ? rawDocs.slice(0, usedLimit) : rawDocs;
 
     res.json({
       documents: JSON.parse(toEjsonString(docs)),
       total, // may be null if the count timed out on a very large filtered collection
       approximateTotal: isEmptyFilter,
       page: pageNum,
-      limit: limitNum,
+      limit: usedLimit,
       hasMore,
-      totalPages: total != null ? Math.max(Math.ceil(total / limitNum), 1) : null,
+      degraded,
+      warning,
+      totalPages: total != null ? Math.max(Math.ceil(total / (usedLimit || 1)), 1) : null,
     });
   } catch (err) {
     next(err);

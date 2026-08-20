@@ -196,6 +196,16 @@ body {
 .btn.primary { background: var(--accent); border-color: var(--accent-dim); color: #fff; }
 .btn.primary:hover { background: var(--accent-dim); }
 
+.query-warning {
+  margin: 0 18px 6px;
+  padding: 7px 12px;
+  background: rgba(255, 212, 59, 0.12);
+  color: #d4a017;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .ts-hint {
   margin: 0 18px 6px;
   padding: 8px 12px;

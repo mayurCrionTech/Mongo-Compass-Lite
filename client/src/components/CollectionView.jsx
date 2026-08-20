@@ -23,13 +23,14 @@ export default function CollectionView({ dbName, collName, timeField, isTimeSeri
   const [approximateTotal, setApproximateTotal] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(200);
+  const [limit, setLimit] = useState(50);
   const [filter, setFilter] = useState('{}');
   const [sort, setSort] = useState('{}');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [editingDoc, setEditingDoc] = useState(null); // null | 'new' | doc
   const [status, setStatus] = useState(null);
+  const [queryWarning, setQueryWarning] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -40,8 +41,10 @@ export default function CollectionView({ dbName, collName, timeField, isTimeSeri
       setTotal(res.total);
       setApproximateTotal(res.approximateTotal);
       setHasMore(res.hasMore);
+      setQueryWarning(res.warning || null);
     } catch (e) {
       setError(e.response?.data?.error || e.message);
+      setQueryWarning(null);
     } finally {
       setLoading(false);
     }
@@ -142,6 +145,9 @@ export default function CollectionView({ dbName, collName, timeField, isTimeSeri
               millions of docs, filter on <code>{timeField}</code>, e.g.{' '}
               <code>{`{"${timeField}": {"$gte": {"$date": "2026-08-01T00:00:00Z"}}}`}</code>
             </div>
+          )}
+          {!loading && !error && queryWarning && (
+            <div className="query-warning">⚡ {queryWarning}</div>
           )}
           {loading && <div className="panel-msg">Loading…</div>}
           {error && <div className="panel-msg error">{error}</div>}
