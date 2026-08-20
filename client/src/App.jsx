@@ -33,7 +33,13 @@ export default function App() {
         <Sidebar selected={selected} onSelect={setSelected} refreshKey={refreshKey} />
         <div className="main-panel">
           {selected.dbName && selected.collName ? (
-            <CollectionView key={`${selected.dbName}.${selected.collName}`} dbName={selected.dbName} collName={selected.collName} />
+            <CollectionView
+              key={`${selected.dbName}.${selected.collName}`}
+              dbName={selected.dbName}
+              collName={selected.collName}
+              timeField={selected.timeField}
+              isTimeSeries={selected.isTimeSeries}
+            />
           ) : (
             <div className="empty-state">
               <div className="empty-icon">🍃</div>

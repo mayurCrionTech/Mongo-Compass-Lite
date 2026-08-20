@@ -101,7 +101,14 @@ export default function Sidebar({ selected, onSelect, refreshKey }) {
                       'coll-row' +
                       (selected.dbName === db.name && selected.collName === c.name ? ' active' : '')
                     }
-                    onClick={() => onSelect({ dbName: db.name, collName: c.name })}
+                    onClick={() =>
+                      onSelect({
+                        dbName: db.name,
+                        collName: c.name,
+                        timeField: c.timeField || null,
+                        isTimeSeries: !!c.isTimeSeries,
+                      })
+                    }
                   >
                     <span className="coll-icon">▤</span>
                     <span className="coll-name">{c.name}</span>

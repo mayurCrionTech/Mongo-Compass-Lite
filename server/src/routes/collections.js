@@ -15,6 +15,7 @@ router.get('/', async (req, res, next) => {
         try {
           const count = await db.collection(c.name).estimatedDocumentCount();
           const stats = await db.command({ collStats: c.name }).catch(() => null);
+          const timeseries = c.options && c.options.timeseries ? c.options.timeseries : null;
           return {
             name: c.name,
             type: c.type,
@@ -23,6 +24,9 @@ router.get('/', async (req, res, next) => {
             storageSizeBytes: stats ? stats.storageSize : null,
             avgObjSize: stats ? stats.avgObjSize : null,
             indexCount: stats ? stats.nindexes : null,
+            isTimeSeries: !!timeseries,
+            timeField: timeseries ? timeseries.timeField : null,
+            metaField: timeseries ? timeseries.metaField : null,
           };
         } catch (e) {
           return { name: c.name, type: c.type, count: null };

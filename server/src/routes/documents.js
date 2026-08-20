@@ -13,29 +13,63 @@ function getColl(client, dbName, collName) {
 router.get('/', async (req, res, next) => {
   try {
     const { dbName, collName } = req.params;
-    const { filter = '{}', sort = '{}', page = 1, limit = 25 } = req.query;
+    const { filter = '{}', sort = '{}', page = 1, limit = 200 } = req.query;
 
     const client = await getClient();
     const coll = getColl(client, dbName, collName);
 
     const parsedFilter = parseEjson(filter);
     const parsedSort = parseEjson(sort);
+    const isEmptyFilter = Object.keys(parsedFilter).length === 0;
 
     const pageNum = Math.max(parseInt(page, 10) || 1, 1);
-    const limitNum = Math.min(Math.max(parseInt(limit, 10) || 25, 1), 500);
+    // Cap default page size so huge (million+ doc) collections stay fast to render.
+    const limitNum = Math.min(Math.max(parseInt(limit, 10) || 200, 1), 500);
     const skip = (pageNum - 1) * limitNum;
 
-    const [docs, total] = await Promise.all([
-      coll.find(parsedFilter).sort(parsedSort).skip(skip).limit(limitNum).toArray(),
-      coll.countDocuments(parsedFilter),
-    ]);
+    // Fetch one extra doc to know if there's a next page, without a separate count query.
+    // maxTimeMS is critical here: without it, a filter/sort that can't use an index on a
+    // multi-million-document (or time-series) collection can run for minutes and the UI
+    // just spins on "Loading…" forever. Fail fast instead, with a clear message.
+    const QUERY_TIMEOUT_MS = 10000;
+    const docsPromise = coll
+      .find(parsedFilter)
+      .sort(parsedSort)
+      .skip(skip)
+      .limit(limitNum + 1)
+      .maxTimeMS(QUERY_TIMEOUT_MS)
+      .toArray()
+      .catch((e) => {
+        if (e.code === 50 || /exceeded time limit/i.test(e.message)) {
+          const err = new Error(
+            'Query timed out — this filter/sort can\'t use an index on this collection, so MongoDB would have to scan millions of documents. Narrow the filter (e.g. add a range on the time field) or add an index for this query.'
+          );
+          err.status = 504;
+          throw err;
+        }
+        throw e;
+      });
+
+    // Counting is expensive on multi-million-document collections (full scan for
+    // countDocuments with a filter). Use the fast metadata-based estimate when there's
+    // no filter, and bound filtered counts with a timeout so they can never hang the request.
+    const countPromise = isEmptyFilter
+      ? coll.estimatedDocumentCount().catch(() => null)
+      : coll.countDocuments(parsedFilter, { maxTimeMS: 4000 }).catch(() => null);
+
+    const [rawDocs, total] = await Promise.all([docsPromise, countPromise]);
+
+    const hasMore = rawDocs.length > limitNum;
+    const docs = hasMore ? rawDocs.slice(0, limitNum) : rawDocs;
 
     res.json({
       documents: JSON.parse(toEjsonString(docs)),
-      total,
+      total, // may be null if the count timed out on a very large filtered collection
+      approximateTotal: isEmptyFilter,
       page: pageNum,
       limit: limitNum,
-      totalPages: Math.max(Math.ceil(total / limitNum), 1),
+      hasMore,
+      totalPages: total != null ? Math.max(Math.ceil(total / limitNum), 1) : null,
     });
   } catch (err) {
     next(err);

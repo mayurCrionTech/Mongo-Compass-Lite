@@ -196,6 +196,22 @@ body {
 .btn.primary { background: var(--accent); border-color: var(--accent-dim); color: #fff; }
 .btn.primary:hover { background: var(--accent-dim); }
 
+.ts-hint {
+  margin: 0 18px 6px;
+  padding: 8px 12px;
+  background: rgba(255, 169, 77, 0.12);
+  color: #e8862a;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.ts-hint code {
+  background: var(--bg-elevated);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: var(--mono);
+}
+
 .status-banner {
   margin: 8px 18px 0;
   padding: 6px 12px;

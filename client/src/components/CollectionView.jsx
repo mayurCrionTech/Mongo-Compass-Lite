@@ -15,14 +15,15 @@ import {
   exportUrl,
 } from '../api';
 
-export default function CollectionView({ dbName, collName }) {
+export default function CollectionView({ dbName, collName, timeField, isTimeSeries }) {
   const [tab, setTab] = useState('documents');
   const [view, setView] = useState('list');
   const [documents, setDocuments] = useState([]);
   const [total, setTotal] = useState(0);
+  const [approximateTotal, setApproximateTotal] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(25);
-  const [totalPages, setTotalPages] = useState(1);
+  const [limit, setLimit] = useState(200);
   const [filter, setFilter] = useState('{}');
   const [sort, setSort] = useState('{}');
   const [loading, setLoading] = useState(true);
@@ -37,7 +38,8 @@ export default function CollectionView({ dbName, collName }) {
       const res = await getDocuments(dbName, collName, { filter, sort, page, limit });
       setDocuments(res.documents);
       setTotal(res.total);
-      setTotalPages(res.totalPages);
+      setApproximateTotal(res.approximateTotal);
+      setHasMore(res.hasMore);
     } catch (e) {
       setError(e.response?.data?.error || e.message);
     } finally {
@@ -133,7 +135,14 @@ export default function CollectionView({ dbName, collName }) {
 
       {tab === 'documents' && (
         <>
-          <QueryBar onRun={handleRunQuery} initialFilter={filter} initialSort={sort} />
+          <QueryBar onRun={handleRunQuery} initialFilter={filter} initialSort={sort} timeField={timeField} />
+          {isTimeSeries && (
+            <div className="ts-hint">
+              Time-series collection (time field: <code>{timeField}</code>). For fast queries on
+              millions of docs, filter on <code>{timeField}</code>, e.g.{' '}
+              <code>{`{"${timeField}": {"$gte": {"$date": "2026-08-01T00:00:00Z"}}}`}</code>
+            </div>
+          )}
           {loading && <div className="panel-msg">Loading…</div>}
           {error && <div className="panel-msg error">{error}</div>}
           {!loading && !error && documents.length === 0 && (
@@ -148,8 +157,9 @@ export default function CollectionView({ dbName, collName }) {
               )}
               <Pagination
                 page={page}
-                totalPages={totalPages}
                 total={total}
+                approximateTotal={approximateTotal}
+                hasMore={hasMore}
                 limit={limit}
                 onPage={setPage}
                 onLimit={(l) => {
