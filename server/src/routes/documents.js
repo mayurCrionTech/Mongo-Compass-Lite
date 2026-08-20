@@ -30,13 +30,21 @@ router.get('/', async (req, res, next) => {
     // Try the query as requested, but if it can't use an index (common on big/time-series
     // collections without a matching index) never just error out — degrade step by step
     // and still return whatever we can get quickly, rather than showing nothing.
-    const QUERY_TIMEOUT_MS = 8000;
-
+    // Individual attempt timeouts are kept small (and count runs in parallel, not after)
+    // so the worst-case total request time stays comfortably under the client's timeout.
     async function attempt(useSort, attemptLimit, timeoutMs) {
       const cursor = coll.find(parsedFilter).skip(skip).limit(attemptLimit + 1).maxTimeMS(timeoutMs);
       if (useSort) cursor.sort(parsedSort);
       return cursor.toArray();
     }
+
+    // Counting is expensive on multi-million-document collections (full scan for
+    // countDocuments with a filter). Use the fast metadata-based estimate when there's
+    // no filter, and bound filtered counts with a timeout so they can never hang the request.
+    // Kicked off immediately, in parallel with the doc fetch below (not after it).
+    const countPromise = isEmptyFilter
+      ? coll.estimatedDocumentCount().catch(() => null)
+      : coll.countDocuments(parsedFilter, { maxTimeMS: 3000 }).catch(() => null);
 
     const hasSort = Object.keys(parsedSort).length > 0;
     let rawDocs;
@@ -46,14 +54,14 @@ router.get('/', async (req, res, next) => {
 
     try {
       // Attempt 1: exactly what was asked for.
-      rawDocs = await attempt(hasSort, limitNum, QUERY_TIMEOUT_MS);
+      rawDocs = await attempt(hasSort, limitNum, 4000);
       usedLimit = limitNum;
     } catch (e1) {
       try {
         // Attempt 2: drop the sort (usually the expensive part without a matching index)
         // and shrink the page size.
         const smallerLimit = Math.min(limitNum, 50);
-        rawDocs = await attempt(false, smallerLimit, 6000);
+        rawDocs = await attempt(false, smallerLimit, 3000);
         usedLimit = smallerLimit;
         degraded = true;
         warning = hasSort
@@ -62,7 +70,7 @@ router.get('/', async (req, res, next) => {
       } catch (e2) {
         try {
           // Attempt 3: bare minimum — just prove the filter works at all, fast.
-          rawDocs = await attempt(false, 20, 4000);
+          rawDocs = await attempt(false, 20, 2000);
           usedLimit = 20;
           degraded = true;
           warning = 'Showing only 20 results — this query is slow on this collection (likely missing an index). Consider adding a filter on an indexed field.';
@@ -75,13 +83,6 @@ router.get('/', async (req, res, next) => {
         }
       }
     }
-
-    // Counting is expensive on multi-million-document collections (full scan for
-    // countDocuments with a filter). Use the fast metadata-based estimate when there's
-    // no filter, and bound filtered counts with a timeout so they can never hang the request.
-    const countPromise = isEmptyFilter
-      ? coll.estimatedDocumentCount().catch(() => null)
-      : coll.countDocuments(parsedFilter, { maxTimeMS: 3000 }).catch(() => null);
 
     const total = await countPromise;
 

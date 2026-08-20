@@ -1,9 +1,11 @@
 import axios from 'axios';
 
-// Backstop timeout: the server itself caps document queries at 10s (see documents.js
-// QUERY_TIMEOUT_MS), so 15s here is just a safety net for the odd request that never
-// gets a response at all (e.g. server restarted mid-request).
-const api = axios.create({ baseURL: '/api', timeout: 15000 });
+// Backstop timeout: the server's document-fetch fallback chain (see documents.js) has a
+// worst case of ~9s (4s + 3s + 2s across its 3 retry attempts, with the count query running
+// in parallel rather than adding to that). 20s here gives real headroom above that plus
+// network/JSON overhead, so the client never gives up right as the server is about to
+// succeed on a later fallback attempt.
+const api = axios.create({ baseURL: '/api', timeout: 20000 });
 
 export const getHealth = () => api.get('/health').then((r) => r.data);
 
