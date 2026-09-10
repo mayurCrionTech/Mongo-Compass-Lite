@@ -12,10 +12,31 @@ router.get('/', async (req, res, next) => {
 
     const withStats = await Promise.all(
       collections.map(async (c) => {
+        const timeseries = c.options && c.options.timeseries ? c.options.timeseries : null;
+
+        // Time-series collections are the slow part: estimatedDocumentCount() and collStats
+        // both have to unpack/scan buckets and can take many seconds on collections with
+        // millions of measurements. Skip both entirely so the collection list loads fast —
+        // stats aren't shown for these, but the collection is still fully browsable.
+        if (timeseries) {
+          return {
+            name: c.name,
+            type: c.type,
+            count: null,
+            sizeBytes: null,
+            storageSizeBytes: null,
+            avgObjSize: null,
+            indexCount: null,
+            isTimeSeries: true,
+            timeField: timeseries.timeField,
+            metaField: timeseries.metaField || null,
+            statsSkipped: true,
+          };
+        }
+
         try {
           const count = await db.collection(c.name).estimatedDocumentCount();
           const stats = await db.command({ collStats: c.name }).catch(() => null);
-          const timeseries = c.options && c.options.timeseries ? c.options.timeseries : null;
           return {
             name: c.name,
             type: c.type,
@@ -24,9 +45,9 @@ router.get('/', async (req, res, next) => {
             storageSizeBytes: stats ? stats.storageSize : null,
             avgObjSize: stats ? stats.avgObjSize : null,
             indexCount: stats ? stats.nindexes : null,
-            isTimeSeries: !!timeseries,
-            timeField: timeseries ? timeseries.timeField : null,
-            metaField: timeseries ? timeseries.metaField : null,
+            isTimeSeries: false,
+            timeField: null,
+            metaField: null,
           };
         } catch (e) {
           return { name: c.name, type: c.type, count: null };

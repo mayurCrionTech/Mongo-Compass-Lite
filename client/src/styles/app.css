@@ -99,6 +99,13 @@ body {
 .coll-icon { font-size: 11px; }
 .coll-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .coll-count { font-size: 11px; opacity: 0.7; }
+.coll-badge {
+  font-size: 10px;
+  background: rgba(255, 169, 77, 0.18);
+  color: #e8862a;
+  padding: 1px 6px;
+  border-radius: 8px;
+}
 .coll-drop { opacity: 0; font-size: 11px; padding: 0 2px; }
 .coll-row:hover .coll-drop { opacity: 0.6; }
 .coll-drop:hover { opacity: 1 !important; color: var(--danger); }

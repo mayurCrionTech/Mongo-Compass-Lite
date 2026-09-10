@@ -112,7 +112,13 @@ export default function Sidebar({ selected, onSelect, refreshKey }) {
                   >
                     <span className="coll-icon">▤</span>
                     <span className="coll-name">{c.name}</span>
-                    <span className="coll-count">{c.count ?? ''}</span>
+                    {c.isTimeSeries ? (
+                      <span className="coll-badge" title={`Time-series (time field: ${c.timeField})`}>
+                        ⏱ ts
+                      </span>
+                    ) : (
+                      <span className="coll-count">{c.count ?? ''}</span>
+                    )}
                     <span
                       className="coll-drop"
                       title="Drop collection"
